@@ -1,0 +1,16 @@
+node_modules/
+*.log
+.DS_Store
+
+# Source dictionaries (large, not needed in repo)
+mecab-ko-dic*/
+kuromoji-reference/
+*.tar.gz
+
+# Original reference files
+KoreanToken.js
+build-dictionary.js
+index.js
+
+# Test files
+test-tokenizer.ts
