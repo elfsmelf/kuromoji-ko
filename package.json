@@ -1,6 +1,6 @@
 {
   "name": "kuromoji-ko",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Pure TypeScript Korean Morphological Analyzer - serverless compatible, based on kuromoji.js and mecab-ko-dic",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -42,12 +42,12 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/richardpaynter/kuromoji-ko.git"
+    "url": "git+https://github.com/elfsmelf/kuromoji-ko.git"
   },
   "bugs": {
-    "url": "https://github.com/richardpaynter/kuromoji-ko/issues"
+    "url": "https://github.com/elfsmelf/kuromoji-ko/issues"
   },
-  "homepage": "https://github.com/richardpaynter/kuromoji-ko#readme",
+  "homepage": "https://github.com/elfsmelf/kuromoji-ko#readme",
   "devDependencies": {
     "@types/node": "^20.10.0",
     "@types/pako": "^2.0.4",
