@@ -1258,20 +1258,53 @@ var DictionaryLoader = class {
     this.isLocalPath = !dicPath.startsWith("http://") && !dicPath.startsWith("https://");
   }
   /**
+   * Check if we're in an edge/serverless runtime that doesn't support Node.js fs
+   */
+  isEdgeRuntime() {
+    if (typeof globalThis !== "undefined" && "EdgeRuntime" in globalThis) {
+      return true;
+    }
+    if (typeof globalThis !== "undefined" && "caches" in globalThis && "default" in globalThis.caches) {
+      return true;
+    }
+    if (typeof globalThis !== "undefined" && "Deno" in globalThis) {
+      return true;
+    }
+    if (typeof process !== "undefined" && process.env?.NEXT_RUNTIME === "edge") {
+      return true;
+    }
+    return false;
+  }
+  /**
    * Load a file as ArrayBuffer, handling both compressed and uncompressed
    */
   async loadArrayBuffer(filename) {
     const path = this.dicPath + filename;
     let buffer;
-    if (this.isLocalPath && typeof process !== "undefined" && process.versions?.node) {
-      const fs = await import("fs/promises");
-      const nodePath = await import("path");
-      const resolvedPath = nodePath.resolve(path);
-      const fileBuffer = await fs.readFile(resolvedPath);
-      buffer = fileBuffer.buffer.slice(
-        fileBuffer.byteOffset,
-        fileBuffer.byteOffset + fileBuffer.byteLength
-      );
+    const shouldUseNodeFs = this.isLocalPath && typeof process !== "undefined" && process.versions?.node && !this.isEdgeRuntime();
+    if (shouldUseNodeFs) {
+      try {
+        const fs = await import(
+          /* webpackIgnore: true */
+          "fs/promises"
+        );
+        const nodePath = await import(
+          /* webpackIgnore: true */
+          "path"
+        );
+        const resolvedPath = nodePath.resolve(path);
+        const fileBuffer = await fs.readFile(resolvedPath);
+        buffer = fileBuffer.buffer.slice(
+          fileBuffer.byteOffset,
+          fileBuffer.byteOffset + fileBuffer.byteLength
+        );
+      } catch {
+        const response = await fetch(path);
+        if (!response.ok) {
+          throw new Error(`Failed to load ${path}: ${response.status} ${response.statusText}`);
+        }
+        buffer = await response.arrayBuffer();
+      }
     } else {
       const response = await fetch(path);
       if (!response.ok) {
