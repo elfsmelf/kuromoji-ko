@@ -7,6 +7,9 @@
 import { TokenizerBuilder, TokenizerBuilderOptions } from './TokenizerBuilder.js';
 import { Tokenizer } from './Tokenizer.js';
 import { KoreanToken, POS_TAGS } from './KoreanToken.js';
+import { MeCab, MeCabOptions } from './MeCab.js';
+import { Token } from './Token.js';
+import { ExpressionToken } from './ExpressionToken.js';
 
 /**
  * Create a tokenizer builder
@@ -16,8 +19,30 @@ function builder(options: TokenizerBuilderOptions = {}): TokenizerBuilder {
 }
 
 // Named exports
-export { builder, TokenizerBuilder, Tokenizer, KoreanToken, POS_TAGS };
-export type { TokenizerBuilderOptions };
+export {
+  // Original API
+  builder,
+  TokenizerBuilder,
+  Tokenizer,
+  KoreanToken,
+  POS_TAGS,
+  // napi-mecab compatible API
+  MeCab,
+  Token,
+  ExpressionToken,
+};
+export type { TokenizerBuilderOptions, MeCabOptions };
 
 // Default export
-export default { builder, TokenizerBuilder, Tokenizer, KoreanToken, POS_TAGS };
+export default {
+  // Original API
+  builder,
+  TokenizerBuilder,
+  Tokenizer,
+  KoreanToken,
+  POS_TAGS,
+  // napi-mecab compatible API
+  MeCab,
+  Token,
+  ExpressionToken,
+};

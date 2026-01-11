@@ -1360,14 +1360,237 @@ var TokenizerBuilder = class {
   }
 };
 
+// src/ExpressionToken.ts
+var VERB_TAGS = ["VV", "VA", "VX", "VCP", "VCN"];
+function nullIfStar(value) {
+  return value === "*" ? null : value;
+}
+var ExpressionToken = class {
+  constructor(raw) {
+    const parts = raw.split("/");
+    this._morpheme = parts[0] ?? "";
+    this._pos = parts[1] ?? "";
+    this._semanticClass = parts[2] ?? "*";
+  }
+  /**
+   * The normalized token/morpheme
+   */
+  get morpheme() {
+    return this._morpheme;
+  }
+  /**
+   * The part of speech tag
+   */
+  get pos() {
+    return this._pos;
+  }
+  /**
+   * The dictionary form (adds 다 for verbs)
+   */
+  get lemma() {
+    if (VERB_TAGS.includes(this._pos)) {
+      return this._morpheme + "\uB2E4";
+    }
+    return this._morpheme;
+  }
+  /**
+   * The semantic word class or category
+   */
+  get semanticClass() {
+    return nullIfStar(this._semanticClass);
+  }
+};
+
+// src/Token.ts
+var VERB_TAGS2 = ["VV", "VA", "VX", "VCP", "VCN"];
+function nullIfStar2(value) {
+  return value === "*" ? null : value;
+}
+var Token = class {
+  constructor(token) {
+    this._token = token;
+  }
+  /**
+   * How the token looks in the input text
+   */
+  get surface() {
+    return this._token.surface_form;
+  }
+  /**
+   * The raw features string (comma-separated)
+   */
+  get features() {
+    return [
+      this._token.pos,
+      this._token.semantic_class,
+      this._token.has_final_consonant,
+      this._token.reading,
+      this._token.type,
+      this._token.first_pos,
+      this._token.last_pos,
+      this._token.expression
+    ].join(",");
+  }
+  /**
+   * The raw string in MeCab format (surface\tfeatures)
+   */
+  get raw() {
+    return `${this.surface}	${this.features}`;
+  }
+  /**
+   * Parts of speech as an array (split by "+")
+   */
+  get pos() {
+    return this._token.pos.split("+");
+  }
+  /**
+   * The dictionary headword (adds 다 for verbs)
+   */
+  get lemma() {
+    const basePos = this.pos[0];
+    if (VERB_TAGS2.includes(basePos)) {
+      return this.surface + "\uB2E4";
+    }
+    return this.surface;
+  }
+  /**
+   * How the token is pronounced
+   */
+  get pronunciation() {
+    return nullIfStar2(this._token.reading);
+  }
+  /**
+   * Whether the token has a final consonant (받침/batchim)
+   */
+  get hasBatchim() {
+    const val = this._token.has_final_consonant;
+    if (val === "T") return true;
+    if (val === "F") return false;
+    return null;
+  }
+  /**
+   * Alias for hasBatchim (종성/jongseong)
+   */
+  get hasJongseong() {
+    return this.hasBatchim;
+  }
+  /**
+   * The semantic word class or category
+   */
+  get semanticClass() {
+    return nullIfStar2(this._token.semantic_class);
+  }
+  /**
+   * The type of token (Inflect/Compound/Preanalysis)
+   */
+  get type() {
+    return nullIfStar2(this._token.type);
+  }
+  /**
+   * The broken-down expression tokens for compound/inflected words
+   */
+  get expression() {
+    if (this._token.expression === "*") return null;
+    return this._token.expression.split("+").map((part) => new ExpressionToken(part));
+  }
+  /**
+   * Get the underlying KoreanToken
+   */
+  get koreanToken() {
+    return this._token;
+  }
+};
+
+// src/MeCab.ts
+var MeCab = class _MeCab {
+  constructor(tokenizer) {
+    this.tokenizer = tokenizer;
+  }
+  /**
+   * Create a MeCab instance asynchronously.
+   *
+   * Unlike napi-mecab which uses a synchronous constructor,
+   * this pure JavaScript implementation requires async initialization
+   * to load the dictionary files without blocking.
+   *
+   * @example
+   * ```typescript
+   * const mecab = await MeCab.create({ engine: 'ko' });
+   * const tokens = mecab.parse('안녕하세요');
+   * ```
+   */
+  static async create(opts = {}) {
+    const engine = opts.engine ?? "ko";
+    if (engine !== "ko") {
+      throw new Error(
+        `"${engine}" is not a supported mecab engine. Only "ko" (Korean) is supported.`
+      );
+    }
+    const builder2 = new TokenizerBuilder({
+      dicPath: opts.dictPath
+    });
+    const tokenizer = await builder2.build();
+    return new _MeCab(tokenizer);
+  }
+  /**
+   * Parse text into an array of tokens.
+   *
+   * @param text - The text to parse
+   * @returns Array of Token objects
+   *
+   * @example
+   * ```typescript
+   * const tokens = mecab.parse('아버지가방에들어가신다');
+   * tokens.forEach(t => console.log(t.surface, t.pos));
+   * ```
+   */
+  parse(text) {
+    const koreanTokens = this.tokenizer.tokenize(text);
+    return koreanTokens.map((token) => new Token(token));
+  }
+  /**
+   * Get just the surface forms as an array.
+   * Convenience method equivalent to napi-mecab parse + map surface.
+   */
+  wakati(text) {
+    return this.tokenizer.wakati(text);
+  }
+  /**
+   * Get space-separated surface forms.
+   */
+  wakatiString(text) {
+    return this.tokenizer.wakatiString(text);
+  }
+  /**
+   * Access the underlying Tokenizer for advanced usage.
+   */
+  get underlyingTokenizer() {
+    return this.tokenizer;
+  }
+};
+
 // src/index.ts
 function builder(options = {}) {
   return new TokenizerBuilder(options);
 }
-var index_default = { builder, TokenizerBuilder, Tokenizer, KoreanToken, POS_TAGS };
-export {
+var index_default = {
+  // Original API
+  builder,
+  TokenizerBuilder,
+  Tokenizer,
   KoreanToken,
   POS_TAGS,
+  // napi-mecab compatible API
+  MeCab,
+  Token,
+  ExpressionToken
+};
+export {
+  ExpressionToken,
+  KoreanToken,
+  MeCab,
+  POS_TAGS,
+  Token,
   Tokenizer,
   TokenizerBuilder,
   builder,

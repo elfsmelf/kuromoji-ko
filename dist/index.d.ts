@@ -331,6 +331,160 @@ declare class TokenizerBuilder {
 }
 
 /**
+ * ExpressionToken - represents a component of an agglutinated Korean token
+ *
+ * Korean compound/inflected words have an expression field in the format:
+ * "morpheme/pos/semanticClass+morpheme/pos/semanticClass+..."
+ *
+ * This class represents a single component of that expression.
+ */
+declare class ExpressionToken {
+    private _morpheme;
+    private _pos;
+    private _semanticClass;
+    constructor(raw: string);
+    /**
+     * The normalized token/morpheme
+     */
+    get morpheme(): string;
+    /**
+     * The part of speech tag
+     */
+    get pos(): string;
+    /**
+     * The dictionary form (adds 다 for verbs)
+     */
+    get lemma(): string;
+    /**
+     * The semantic word class or category
+     */
+    get semanticClass(): string | null;
+}
+
+/**
+ * Token - napi-mecab compatible token wrapper
+ *
+ * Provides getters that match the napi-mecab API for Korean tokens.
+ */
+
+declare class Token {
+    private _token;
+    constructor(token: KoreanToken);
+    /**
+     * How the token looks in the input text
+     */
+    get surface(): string;
+    /**
+     * The raw features string (comma-separated)
+     */
+    get features(): string;
+    /**
+     * The raw string in MeCab format (surface\tfeatures)
+     */
+    get raw(): string;
+    /**
+     * Parts of speech as an array (split by "+")
+     */
+    get pos(): string[];
+    /**
+     * The dictionary headword (adds 다 for verbs)
+     */
+    get lemma(): string | null;
+    /**
+     * How the token is pronounced
+     */
+    get pronunciation(): string | null;
+    /**
+     * Whether the token has a final consonant (받침/batchim)
+     */
+    get hasBatchim(): boolean | null;
+    /**
+     * Alias for hasBatchim (종성/jongseong)
+     */
+    get hasJongseong(): boolean | null;
+    /**
+     * The semantic word class or category
+     */
+    get semanticClass(): string | null;
+    /**
+     * The type of token (Inflect/Compound/Preanalysis)
+     */
+    get type(): string | null;
+    /**
+     * The broken-down expression tokens for compound/inflected words
+     */
+    get expression(): ExpressionToken[] | null;
+    /**
+     * Get the underlying KoreanToken
+     */
+    get koreanToken(): KoreanToken;
+}
+
+/**
+ * MeCab - napi-mecab compatible API wrapper
+ *
+ * Provides a familiar API for users coming from napi-mecab.
+ * Uses async initialization since this is a pure JavaScript implementation.
+ */
+
+interface MeCabOptions {
+    /**
+     * The language engine to use. Only 'ko' (Korean) is supported.
+     * @default 'ko'
+     */
+    engine?: 'ko';
+    /**
+     * Path to the dictionary directory.
+     * @default 'dict/'
+     */
+    dictPath?: string;
+}
+declare class MeCab {
+    private tokenizer;
+    private constructor();
+    /**
+     * Create a MeCab instance asynchronously.
+     *
+     * Unlike napi-mecab which uses a synchronous constructor,
+     * this pure JavaScript implementation requires async initialization
+     * to load the dictionary files without blocking.
+     *
+     * @example
+     * ```typescript
+     * const mecab = await MeCab.create({ engine: 'ko' });
+     * const tokens = mecab.parse('안녕하세요');
+     * ```
+     */
+    static create(opts?: MeCabOptions): Promise<MeCab>;
+    /**
+     * Parse text into an array of tokens.
+     *
+     * @param text - The text to parse
+     * @returns Array of Token objects
+     *
+     * @example
+     * ```typescript
+     * const tokens = mecab.parse('아버지가방에들어가신다');
+     * tokens.forEach(t => console.log(t.surface, t.pos));
+     * ```
+     */
+    parse(text: string): Token[];
+    /**
+     * Get just the surface forms as an array.
+     * Convenience method equivalent to napi-mecab parse + map surface.
+     */
+    wakati(text: string): string[];
+    /**
+     * Get space-separated surface forms.
+     */
+    wakatiString(text: string): string;
+    /**
+     * Access the underlying Tokenizer for advanced usage.
+     */
+    get underlyingTokenizer(): Tokenizer;
+}
+
+/**
  * mecab-ko - Pure TypeScript Korean Morphological Analyzer
  *
  * A port of kuromoji.js adapted for Korean language processing using mecab-ko-dic.
@@ -347,6 +501,9 @@ declare const _default: {
     Tokenizer: typeof Tokenizer;
     KoreanToken: typeof KoreanToken;
     POS_TAGS: Record<string, string>;
+    MeCab: typeof MeCab;
+    Token: typeof Token;
+    ExpressionToken: typeof ExpressionToken;
 };
 
-export { KoreanToken, POS_TAGS, Tokenizer, TokenizerBuilder, type TokenizerBuilderOptions, builder, _default as default };
+export { ExpressionToken, KoreanToken, MeCab, type MeCabOptions, POS_TAGS, Token, Tokenizer, TokenizerBuilder, type TokenizerBuilderOptions, builder, _default as default };

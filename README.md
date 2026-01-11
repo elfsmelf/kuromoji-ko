@@ -20,6 +20,24 @@ npm install kuromoji-ko
 
 ## Quick Start
 
+### napi-mecab Compatible API (Recommended)
+
+```javascript
+import { MeCab } from 'kuromoji-ko';
+
+const mecab = await MeCab.create({ engine: 'ko', dictPath: './dict' });
+const tokens = mecab.parse('안녕하세요');
+
+for (const token of tokens) {
+  console.log(token.surface, token.pos, token.lemma);
+}
+// 안녕 ['NNG'] 안녕
+// 하 ['XSV'] 하다
+// 세요 ['EF'] 세요
+```
+
+### Classic API
+
 ```javascript
 import kuromoji from 'kuromoji-ko';
 
@@ -53,7 +71,62 @@ This creates binary dictionary files in the `./dict` directory.
 
 ## API
 
-### `kuromoji.builder(options)`
+### MeCab API (napi-mecab compatible)
+
+#### `MeCab.create(options)`
+
+Create a MeCab instance asynchronously.
+
+```javascript
+import { MeCab } from 'kuromoji-ko';
+
+const mecab = await MeCab.create({
+  engine: 'ko',      // Only 'ko' is supported
+  dictPath: './dict' // Path to dictionary directory
+});
+```
+
+#### `mecab.parse(text)`
+
+Parse text into an array of Token objects.
+
+```javascript
+const tokens = mecab.parse('아버지가방에들어가신다');
+tokens.forEach(t => console.log(t.surface, t.pos));
+```
+
+### Token Object (napi-mecab compatible)
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `surface` | `string` | How the token looks in the input text |
+| `pos` | `string[]` | Parts of speech as array (split by "+") |
+| `lemma` | `string` | Dictionary headword (adds "다" for verbs) |
+| `pronunciation` | `string \| null` | How the token is pronounced |
+| `hasBatchim` | `boolean \| null` | Whether token has final consonant (받침) |
+| `hasJongseong` | `boolean \| null` | Alias for hasBatchim |
+| `semanticClass` | `string \| null` | Semantic word class or category |
+| `type` | `string \| null` | Token type (Inflect/Compound/Preanalysis) |
+| `expression` | `ExpressionToken[] \| null` | Breakdown of compound/inflected tokens |
+| `features` | `string` | Raw features string (comma-separated) |
+| `raw` | `string` | Raw MeCab output format (surface\tfeatures) |
+
+### ExpressionToken Object
+
+For compound or inflected words, `expression` returns an array of ExpressionToken:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `morpheme` | `string` | The normalized token |
+| `pos` | `string` | Part of speech |
+| `lemma` | `string` | Dictionary form (adds "다" for verbs) |
+| `semanticClass` | `string \| null` | Semantic category |
+
+---
+
+### Classic API
+
+#### `kuromoji.builder(options)`
 
 Create a tokenizer builder.
 
@@ -98,9 +171,9 @@ const str = tokenizer.wakatiString('한국어 형태소 분석');
 // '한국어 형태소 분석'
 ```
 
-## Token Object
+## KoreanToken Object (Classic API)
 
-Each token has the following properties:
+Each token from `tokenizer.tokenize()` has the following properties:
 
 | Property | Description | Example |
 |----------|-------------|---------|
