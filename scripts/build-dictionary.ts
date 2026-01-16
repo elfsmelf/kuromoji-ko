@@ -17,6 +17,118 @@ import { gzip } from 'pako';
 
 const MECAB_KO_DIC_PATH = process.argv[2] || './mecab-ko-dic';
 const OUTPUT_PATH = process.argv[3] || './dict';
+const FREQUENCY_LIST_PATH = process.argv[4] || './frequency-list.json';
+const EXISTING_DICT_PATH = process.argv[5] || './dict-original'; // For files we can't regenerate
+
+// Frequency data for cost adjustment
+let frequencyMap: Map<string, number> = new Map();
+
+const VERB_TAGS = ['VV', 'VA', 'VX', 'VCP', 'VCN'];
+
+/**
+ * Load frequency list and create lookup map
+ */
+async function loadFrequencyList(freqPath: string): Promise<void> {
+  try {
+    const content = await fs.readFile(freqPath, 'utf-8');
+    const data: Array<{ rank: number; word: string }> = JSON.parse(content);
+
+    for (const item of data) {
+      frequencyMap.set(item.word, item.rank);
+    }
+    console.log(`Loaded ${frequencyMap.size} frequency entries`);
+  } catch (err) {
+    console.log('No frequency list found, using default costs');
+  }
+}
+
+/**
+ * Known ambiguous verb pairs where frequency should determine preference.
+ * Key: common verb lemma, Value: rare verb lemma that shares conjugated forms
+ */
+const AMBIGUOUS_VERB_PAIRS: Map<string, string[]> = new Map([
+  ['자다', ['잣다']], // sleep vs measure grain (자)
+  ['가다', ['갈다']], // go vs grind (가)
+  ['사다', ['살다']], // buy vs live (사) - though both common
+  ['서다', ['섣다']], // stand vs be premature
+  ['타다', ['탈다']], // ride vs burn off
+  ['차다', ['찰다']], // kick vs be cold
+  ['나다', ['날다']], // occur vs fly (나)
+  ['보다', ['볻다']], // see vs (rare)
+]);
+
+// Build reverse lookup: rare verb -> common verb
+const RARE_TO_COMMON: Map<string, string> = new Map();
+for (const [common, rares] of AMBIGUOUS_VERB_PAIRS) {
+  for (const rare of rares) {
+    RARE_TO_COMMON.set(rare, common);
+  }
+}
+
+/**
+ * Calculate cost adjustment for ambiguous verb pairs only.
+ * This is a targeted fix that only affects known problematic cases.
+ */
+function getCostAdjustment(word: string, pos: string): number {
+  // Only apply to verbs
+  const isVerb = VERB_TAGS.some((tag) => pos.startsWith(tag));
+  if (!isVerb) {
+    return 0;
+  }
+
+  // Check if this is a known common verb that has a rare homophone
+  if (AMBIGUOUS_VERB_PAIRS.has(word)) {
+    const rank = frequencyMap.get(word);
+    if (rank !== undefined && rank < 500) {
+      return -300; // Boost common verb
+    }
+  }
+
+  // Check if this is a known rare verb that has a common homophone
+  if (RARE_TO_COMMON.has(word)) {
+    const commonVerb = RARE_TO_COMMON.get(word)!;
+    const commonRank = frequencyMap.get(commonVerb);
+    const rareRank = frequencyMap.get(word);
+
+    // If common verb is much more frequent, penalize the rare one
+    if (commonRank !== undefined && commonRank < 500) {
+      if (rareRank === undefined || rareRank > 10000) {
+        return 500; // Penalize rare verb
+      }
+    }
+  }
+
+  return 0; // No adjustment for most verbs
+}
+
+/**
+ * Extract the lemma (dictionary form) from an entry
+ * For verbs, this adds 다 to the stem
+ */
+function extractLemma(entry: DictionaryEntry): string | null {
+  const pos = entry.features[0]; // First feature is POS
+  const expression = entry.features[7]; // expression field
+
+  // For inflected forms, extract the base morpheme from expression
+  if (expression && expression !== '*') {
+    // Expression format: "하/VV/*+아/EC/*" - extract first morpheme
+    const firstPart = expression.split('+')[0];
+    const [morpheme, morphPos] = firstPart.split('/');
+
+    if (morphPos && VERB_TAGS.includes(morphPos)) {
+      return morpheme + '다';
+    }
+  }
+
+  // For simple verb entries
+  const basePos = pos.split('+')[0];
+  if (VERB_TAGS.includes(basePos)) {
+    return entry.surface + '다';
+  }
+
+  // For non-verbs, just return the surface
+  return entry.surface;
+}
 
 interface DictionaryEntry {
   surface: string;
@@ -295,6 +407,8 @@ function buildTokenInfo(entries: DictionaryEntry[]): {
   // Create tid buffer - 10 bytes per entry: left_id(2) + right_id(2) + cost(2) + pos_offset(4)
   const tidBuffer = Buffer.alloc(entries.length * 10);
   let tidOffset = 0;
+  let adjustedCount = 0;
+
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
     // left_id and right_id as signed int16 (values should be < 32768 but let's be safe)
@@ -302,13 +416,33 @@ function buildTokenInfo(entries: DictionaryEntry[]): {
     tidOffset += 2;
     tidBuffer.writeInt16LE(entry.right_id > 32767 ? entry.right_id - 65536 : entry.right_id, tidOffset);
     tidOffset += 2;
+
+    // Apply frequency-based cost adjustment
+    let adjustedCost = entry.word_cost;
+    if (frequencyMap.size > 0) {
+      const lemma = extractLemma(entry);
+      const pos = entry.features[0]; // POS tag
+      if (lemma) {
+        const adjustment = getCostAdjustment(lemma, pos);
+        adjustedCost = entry.word_cost + adjustment;
+        if (adjustment !== 0) adjustedCount++; // Count entries that were adjusted
+      }
+    }
+
+    // Clamp to int16 range
+    adjustedCost = Math.max(-32768, Math.min(32767, adjustedCost));
+
     // cost as signed int16
-    const signedCost = entry.word_cost > 32767 ? entry.word_cost - 65536 : entry.word_cost;
+    const signedCost = adjustedCost > 32767 ? adjustedCost - 65536 : adjustedCost;
     tidBuffer.writeInt16LE(signedCost, tidOffset);
     tidOffset += 2;
     // pos offset as unsigned int32
     tidBuffer.writeUInt32LE(posOffsets[i], tidOffset);
     tidOffset += 4;
+  }
+
+  if (frequencyMap.size > 0) {
+    console.log(`Applied frequency adjustments to ${adjustedCount} entries`);
   }
 
   // Create pos buffer
@@ -551,18 +685,30 @@ async function main(): Promise<void> {
   console.log('=== mecab-ko Dictionary Builder ===');
   console.log(`Input: ${MECAB_KO_DIC_PATH}`);
   console.log(`Output: ${OUTPUT_PATH}`);
+  console.log(`Frequency list: ${FREQUENCY_LIST_PATH}`);
 
   // Create output directory
   await fs.mkdir(OUTPUT_PATH, { recursive: true });
+
+  // Load frequency list for cost adjustments
+  console.log('\n[0/6] Loading frequency list...');
+  await loadFrequencyList(FREQUENCY_LIST_PATH);
 
   // Read dictionary
   console.log('\n[1/6] Reading dictionary CSVs...');
   const entries = await readDictionaryCSVs(MECAB_KO_DIC_PATH);
 
-  // Read matrix
+  // Read matrix (or copy existing cc.dat.gz if matrix.def not available)
   console.log('\n[2/6] Reading connection costs...');
-  const matrix = await readMatrixDef(MECAB_KO_DIC_PATH);
-  console.log(`Matrix size: ${matrix.forwardSize} x ${matrix.backwardSize}`);
+  let matrix: MatrixDef | null = null;
+  let useExistingCc = false;
+  try {
+    matrix = await readMatrixDef(MECAB_KO_DIC_PATH);
+    console.log(`Matrix size: ${matrix.forwardSize} x ${matrix.backwardSize}`);
+  } catch {
+    console.log('matrix.def not found, will copy existing cc.dat.gz');
+    useExistingCc = true;
+  }
 
   // Read char.def
   console.log('\n[3/6] Reading character definitions...');
@@ -583,26 +729,39 @@ async function main(): Promise<void> {
   console.log('\n[6/6] Building dictionaries...');
   const { tid, tidPos } = buildTokenInfo(entries);
   const tidMap = buildTargetMapBuffer(targetMap, []);
-  const ccBuffer = buildConnectionCosts(matrix);
   const unknownDicts = buildUnknownDictionaries(charDef, unkEntries);
 
   // Write all files
   console.log('\nWriting dictionary files...');
 
-  await Promise.all([
+  const writePromises: Promise<void>[] = [
     writeGzipped(path.join(OUTPUT_PATH, 'base.dat.gz'), Buffer.from(base.buffer)),
     writeGzipped(path.join(OUTPUT_PATH, 'check.dat.gz'), Buffer.from(check.buffer)),
     writeGzipped(path.join(OUTPUT_PATH, 'tid.dat.gz'), tid),
     writeGzipped(path.join(OUTPUT_PATH, 'tid_pos.dat.gz'), tidPos),
     writeGzipped(path.join(OUTPUT_PATH, 'tid_map.dat.gz'), tidMap),
-    writeGzipped(path.join(OUTPUT_PATH, 'cc.dat.gz'), ccBuffer),
     writeGzipped(path.join(OUTPUT_PATH, 'unk.dat.gz'), unknownDicts.unk),
     writeGzipped(path.join(OUTPUT_PATH, 'unk_pos.dat.gz'), unknownDicts.unkPos),
     writeGzipped(path.join(OUTPUT_PATH, 'unk_map.dat.gz'), unknownDicts.unkMap),
     writeGzipped(path.join(OUTPUT_PATH, 'unk_char.dat.gz'), unknownDicts.unkChar),
     writeGzipped(path.join(OUTPUT_PATH, 'unk_compat.dat.gz'), unknownDicts.unkCompat),
     writeGzipped(path.join(OUTPUT_PATH, 'unk_invoke.dat.gz'), unknownDicts.unkInvoke),
-  ]);
+  ];
+
+  // Handle connection costs
+  if (useExistingCc) {
+    // Copy existing cc.dat.gz
+    const existingCcPath = path.join(EXISTING_DICT_PATH, 'cc.dat.gz');
+    console.log(`Copying ${existingCcPath} to output...`);
+    writePromises.push(
+      fs.copyFile(existingCcPath, path.join(OUTPUT_PATH, 'cc.dat.gz'))
+    );
+  } else if (matrix) {
+    const ccBuffer = buildConnectionCosts(matrix);
+    writePromises.push(writeGzipped(path.join(OUTPUT_PATH, 'cc.dat.gz'), ccBuffer));
+  }
+
+  await Promise.all(writePromises);
 
   console.log('\n=== Build Complete ===');
   console.log(`Files written to ${OUTPUT_PATH}/`);

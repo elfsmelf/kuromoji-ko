@@ -1,6 +1,6 @@
 {
   "name": "kuromoji-ko",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Pure TypeScript Korean Morphological Analyzer - serverless compatible, based on kuromoji.js and mecab-ko-dic",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
