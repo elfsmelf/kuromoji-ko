@@ -1480,6 +1480,13 @@ var Token = class {
    * The dictionary headword (adds 다 for verbs)
    */
   get lemma() {
+    const expr = this.expression;
+    if (expr && expr.length > 0) {
+      const baseMorpheme = expr[0];
+      if (VERB_TAGS2.includes(baseMorpheme.pos)) {
+        return baseMorpheme.lemma;
+      }
+    }
     const basePos = this.pos[0];
     if (VERB_TAGS2.includes(basePos)) {
       return this.surface + "\uB2E4";

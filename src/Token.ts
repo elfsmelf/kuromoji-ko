@@ -61,6 +61,16 @@ export class Token {
    * The dictionary headword (adds 다 for verbs)
    */
   get lemma(): string | null {
+    // For inflected tokens with expressions, use the base morpheme's lemma
+    const expr = this.expression;
+    if (expr && expr.length > 0) {
+      const baseMorpheme = expr[0];
+      if (VERB_TAGS.includes(baseMorpheme.pos)) {
+        return baseMorpheme.lemma;
+      }
+    }
+
+    // For simple verb tokens, add 다 to surface
     const basePos = this.pos[0];
     if (VERB_TAGS.includes(basePos)) {
       return this.surface + '다';
