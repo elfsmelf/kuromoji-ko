@@ -541,6 +541,201 @@ var KoreanFormatter = class {
   }
 };
 
+// src/VerbPostProcessor.ts
+var COMMON_VERB_STEMS = /* @__PURE__ */ new Set([
+  // Very common verbs often mistagged
+  "\uC8FC",
+  // 주다 - to give
+  "\uC624",
+  // 오다 - to come
+  "\uAC00",
+  // 가다 - to go
+  "\uBCF4",
+  // 보다 - to see/look
+  "\uC0AC",
+  // 사다 - to buy
+  "\uC790",
+  // 자다 - to sleep
+  "\uD0C0",
+  // 타다 - to ride
+  "\uC11C",
+  // 서다 - to stand
+  "\uB098",
+  // 나다 - to occur
+  "\uB450",
+  // 두다 - to put/place
+  "\uC4F0",
+  // 쓰다 - to write/use
+  "\uB044",
+  // 끄다 - to turn off
+  "\uD2B8",
+  // 트다 - to open
+  "\uBE60\uC9C0",
+  // 빠지다 - to fall into
+  "\uB4DC\uB9AC",
+  // 드리다 - to give (humble)
+  "\uB370\uB9AC",
+  // 데리다 - to bring (person)
+  "\uB4E4",
+  // 들다 - to enter/hold
+  "\uC5F4",
+  // 열다 - to open
+  "\uB2EB",
+  // 닫다 - to close
+  "\uC549",
+  // 앉다 - to sit
+  "\uC77D",
+  // 읽다 - to read
+  "\uCC3E",
+  // 찾다 - to find
+  "\uBC1B",
+  // 받다 - to receive
+  "\uAC16",
+  // 갖다 - to have
+  "\uC7A1",
+  // 잡다 - to catch
+  "\uB123",
+  // 넣다 - to put in
+  "\uB193",
+  // 놓다 - to place
+  "\uB3CC",
+  // 돌다 - to turn
+  "\uB358\uC9C0",
+  // 던지다 - to throw
+  "\uB4E4\uC5B4",
+  // 들어가다/오다
+  "\uC62C",
+  // 올라가다/오다
+  "\uB0B4",
+  // 내다, 내리다
+  "\uC2DC\uD0A4",
+  // 시키다 - to order
+  "\uAE30\uB2E4\uB9AC",
+  // 기다리다 - to wait
+  "\uBC14\uAFB8",
+  // 바꾸다 - to change
+  "\uACE0\uCE58",
+  // 고치다 - to fix
+  "\uC9C0\uD0A4",
+  // 지키다 - to protect
+  "\uB9C8\uC2DC",
+  // 마시다 - to drink
+  "\uBD80\uB974",
+  // 부르다 - to call
+  "\uBAA8\uB974",
+  // 모르다 - to not know
+  "\uACE0\uB974",
+  // 고르다 - to choose
+  "\uB204\uB974",
+  // 누르다 - to press
+  "\uBC30\uC6B0",
+  // 배우다 - to learn
+  "\uB3C4\uC640\uC8FC"
+  // 도와주다 - to help
+]);
+var VERB_ENDING_PATTERNS = [
+  // Honorific request forms (-세요, -으세요)
+  { ending: "\uC138\uC694", epPart: "\uC2DC", efPart: "\uC5B4\uC694", description: "honorific polite" },
+  { ending: "\uC73C\uC138\uC694", epPart: "\uC73C\uC2DC", efPart: "\uC5B4\uC694", description: "honorific polite (with \uC73C)" },
+  // Honorific declarative forms (-셔요)
+  { ending: "\uC154\uC694", epPart: "\uC2DC", efPart: "\uC5B4\uC694", description: "honorific polite alt" },
+  // Honorific formal forms (-십니다, -으십니다)
+  { ending: "\uC2ED\uB2C8\uB2E4", epPart: "\uC2DC", efPart: "\u3142\uB2C8\uB2E4", description: "honorific formal" },
+  { ending: "\uC73C\uC2ED\uB2C8\uB2E4", epPart: "\uC73C\uC2DC", efPart: "\u3142\uB2C8\uB2E4", description: "honorific formal (with \uC73C)" },
+  // Honorific past forms (-셨어요, -으셨어요)
+  { ending: "\uC168\uC5B4\uC694", epPart: "\uC2DC\uC5C8", efPart: "\uC5B4\uC694", description: "honorific past polite" },
+  { ending: "\uC73C\uC168\uC5B4\uC694", epPart: "\uC73C\uC2DC\uC5C8", efPart: "\uC5B4\uC694", description: "honorific past polite (with \uC73C)" }
+];
+function hasJongseong(char) {
+  if (!char || char.length === 0) return false;
+  const code = char.charCodeAt(0);
+  if (code < 44032 || code > 55203) return false;
+  return (code - 44032) % 28 !== 0;
+}
+var VerbPostProcessor = class {
+  /**
+   * Process tokens and fix mistagged verb forms
+   */
+  process(tokens) {
+    for (let i = 0; i < tokens.length; i++) {
+      const token = tokens[i];
+      if (this.shouldProcess(token)) {
+        const corrected = this.tryCorrectVerbForm(token);
+        if (corrected) {
+          tokens[i] = corrected;
+        }
+      }
+    }
+    return tokens;
+  }
+  /**
+   * Check if a token should be processed for potential correction
+   */
+  shouldProcess(token) {
+    if (token.pos !== "NNP" && token.pos !== "NNG") {
+      return false;
+    }
+    if (token.surface_form.length < 2) {
+      return false;
+    }
+    return true;
+  }
+  /**
+   * Try to correct a potentially mistagged verb form
+   */
+  tryCorrectVerbForm(token) {
+    const surface = token.surface_form;
+    for (const pattern of VERB_ENDING_PATTERNS) {
+      if (surface.endsWith(pattern.ending)) {
+        const stem = surface.slice(0, -pattern.ending.length);
+        if (stem.length > 0 && COMMON_VERB_STEMS.has(stem)) {
+          return this.createCorrectedToken(token, stem, pattern);
+        }
+        if (pattern.ending.startsWith("\uC73C")) {
+          continue;
+        }
+        if (stem.length === 1 && this.looksLikeVerbStem(stem)) {
+          return this.createCorrectedToken(token, stem, pattern);
+        }
+      }
+    }
+    return null;
+  }
+  /**
+   * Heuristic check if a character looks like it could be a verb stem
+   */
+  looksLikeVerbStem(char) {
+    if (char.length !== 1) return false;
+    const code = char.charCodeAt(0);
+    if (code < 44032 || code > 55203) return false;
+    return !hasJongseong(char) || COMMON_VERB_STEMS.has(char);
+  }
+  /**
+   * Create a corrected token with proper verb tagging
+   */
+  createCorrectedToken(original, stem, pattern) {
+    const expression = `${stem}/VV/*+${pattern.epPart}/EP/*+${pattern.efPart}/EF/*`;
+    const stemHasJongseong = hasJongseong(stem.charAt(stem.length - 1));
+    return new KoreanToken({
+      word_id: original.word_id,
+      word_type: original.word_type,
+      word_position: original.word_position,
+      surface_form: original.surface_form,
+      pos: "VV+EP+EF",
+      // Verb + Pre-final ending + Final ending
+      semantic_class: "*",
+      has_final_consonant: "F",
+      // The final form ends with 요 (no jongseong)
+      reading: original.surface_form,
+      type: "Inflect",
+      first_pos: "VV",
+      last_pos: "EF",
+      expression
+    });
+  }
+};
+var verbPostProcessor = new VerbPostProcessor();
+
 // src/Tokenizer.ts
 var PUNCTUATION = /[.?!。？！]/;
 var Tokenizer = class _Tokenizer {
@@ -581,7 +776,7 @@ var Tokenizer = class _Tokenizer {
       const sentence = sentences[i];
       this.tokenizeForSentence(sentence, tokens);
     }
-    return tokens;
+    return verbPostProcessor.process(tokens);
   }
   /**
    * Tokenize a single sentence

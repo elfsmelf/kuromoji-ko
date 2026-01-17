@@ -6,6 +6,7 @@ import { KoreanToken } from './KoreanToken.js';
 import { DynamicDictionaries } from './dict/DynamicDictionaries.js';
 import { TokenInfoDictionary } from './dict/TokenInfoDictionary.js';
 import { UnknownDictionary } from './dict/UnknownDictionary.js';
+import { verbPostProcessor } from './VerbPostProcessor.js';
 
 // Korean sentence-ending punctuation
 const PUNCTUATION = /[.?!。？！]/;
@@ -63,7 +64,8 @@ export class Tokenizer {
       this.tokenizeForSentence(sentence, tokens);
     }
 
-    return tokens;
+    // Apply post-processing to fix mistagged verb forms
+    return verbPostProcessor.process(tokens);
   }
 
   /**
